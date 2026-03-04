@@ -205,7 +205,9 @@ def _make_provider(config: Config):
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
 
     model = config.agents.defaults.model
+
     provider_name = config.get_provider_name(model)
+    print(f"model is {model} provider is {provider_name}")
     p = config.get_provider(model)
 
     # OpenAI Codex (OAuth)
@@ -446,7 +448,7 @@ def agent(
 
     bus = MessageBus()
     provider = _make_provider(config)
-
+    print(f"provider is {provider.default_model}")
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
     cron = CronService(cron_store_path)

@@ -8,9 +8,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+import time
 from loguru import logger
 
+from nanobot.agent import tools
 from nanobot.agent.tools.base import Tool
+from tavily import TavilyClient
 
 # Shared constants
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
@@ -62,6 +65,7 @@ class WebSearchTool(Tool):
         self._init_api_key = api_key
         self.max_results = max_results
         self.proxy = proxy
+        self.tavily = TavilySearch(api_key=api_key, max_results=max_results)
 
     @property
     def api_key(self) -> str:
@@ -77,6 +81,15 @@ class WebSearchTool(Tool):
             )
 
         try:
+            max_attempts = kwargs.get("max_attempts", 10)
+            i = 0
+            while i < max_attempts:
+                tavily_execute_res = await self.tavily.execute(query, count, **kwargs)
+                logger.info(f" tavily_execute_res: {tavily_execute_res}")
+                if not tavily_execute_res:
+                    return tavily_execute_res
+                i += 1
+                time.sleep(5)
             n = min(max(count or self.max_results, 1), 10)
             logger.debug("WebSearch: {}", "proxy enabled" if self.proxy else "direct connection")
             async with httpx.AsyncClient(proxy=self.proxy) as client:
@@ -179,3 +192,47 @@ class WebFetchTool(Tool):
         text = re.sub(r'</(p|div|section|article)>', '\n\n', text, flags=re.I)
         text = re.sub(r'<(br|hr)\s*/?>', '\n', text, flags=re.I)
         return _normalize(_strip_tags(text))
+
+
+class TavilySearch(Tool):
+    name = "web_search"
+    description = "Search the web. Returns titles, URLs, and snippets."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query"},
+            "count": {"type": "integer", "description": "Results (1-10)", "minimum": 1, "maximum": 10}
+        },
+        "required": ["query"]
+    }
+
+    def __init__(self, api_key: str | None = None, max_results: int = 10, proxy: str | None = None):
+        self._init_api_key = api_key
+        self.max_results = max_results
+        self.client = TavilyClient(api_key=self._init_api_key)
+
+    async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
+        if not self._init_api_key:
+            return (
+                "Error: Tavily Search API key not configured. Set it in "
+                "~/.nanobot/config.json under tools.web.search.apiKey "
+            )
+
+        try:
+            n = min(max(count or self.max_results, 1), 10)
+
+            r = self.client.search(query=query, search_depth="advanced", max_results=n, **kwargs)
+
+            results = r.get("results", [])
+            if not results:
+                return f"No results for: {query}"
+
+            lines = [f"Results for: {query}\n"]
+            for i, item in enumerate(results, 1):
+                lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
+                if desc := item.get("content"):
+                    lines.append(f"   {desc}")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error("WebSearch error: {}", e)
+            return f"Error: {e}"
