@@ -38,6 +38,7 @@ class LiteLLMProvider(LLMProvider):
         default_model: str = "anthropic/claude-opus-4-5",
         extra_headers: dict[str, str] | None = None,
         provider_name: str | None = None,
+        timeout: int = 1800,
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
@@ -47,7 +48,7 @@ class LiteLLMProvider(LLMProvider):
         # provider_name (from config key) is the primary signal;
         # api_key / api_base are fallback for auto-detection.
         self._gateway = find_gateway(provider_name, api_key, api_base)
-
+        self.timeout = timeout
         # Configure environment variables
         if api_key:
             self._setup_env(api_key, api_base, default_model)
@@ -216,6 +217,7 @@ class LiteLLMProvider(LLMProvider):
             "messages": self._sanitize_messages(self._sanitize_empty_content(messages), extra_keys=extra_msg_keys),
             "max_tokens": max_tokens,
             "temperature": temperature,
+            "timeout": self.timeout,
         }
 
         # Apply model-specific overrides (e.g. kimi-k2.5 temperature)
